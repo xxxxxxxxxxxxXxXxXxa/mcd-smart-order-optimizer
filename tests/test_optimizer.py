@@ -8,13 +8,21 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.optimizer import (  # noqa: E402
+    Coupon,
     apply_coupons,
+    filter_menu,
     find_best_combo,
+    plan_coupon_usage,
+    plan_week,
     rank_points_redeem,
+    rank_value,
+    solve_combo_deal,
     solve_nutrition,
+    solve_nutrition_diet,
     solve_points,
     solve_savings,
 )
+from src.report import render_report_html, svg_bars  # noqa: E402
 from src import mock_data  # noqa: E402
 
 
@@ -71,6 +79,101 @@ def test_solve_points_affordable_flag():
     rows = solve_points(mock_data.MOCK_POINTS_PRODUCTS, 1500)
     for r in rows:
         assert r["affordable"] == (r["points_cost"] <= 1500)
+
+
+# ---------------------------------------------------------------------------
+# v2 新增能力测试
+# ---------------------------------------------------------------------------
+
+
+def test_filter_menu_vegetarian():
+    out = filter_menu(mock_data.MOCK_MENU, vegetarian=True)
+    assert out, "素食过滤后不应为空"
+    assert all(it.vegetarian for it in out)
+    names = {it.name for it in out}
+    assert "田园沙拉" in names
+    assert "巨无霸" not in names
+
+
+def test_filter_menu_avoid_allergen():
+    out = filter_menu(mock_data.MOCK_MENU, avoid=["牛肉"])
+    assert all("牛肉" not in it.allergens for it in out)
+    assert "巨无霸" not in {it.name for it in out}
+    assert len(out) < len(mock_data.MOCK_MENU)
+
+
+def test_rank_value_sorted_by_protein():
+    rows = rank_value(mock_data.MOCK_MENU, by="protein", top_n=8)
+    vals = [r["protein_per_yuan"] for r in rows]
+    assert len(rows) == 8
+    assert vals == sorted(vals, reverse=True)
+    assert all(v > 0 for v in vals)
+
+
+def test_solve_combo_deal_picks_cheapest_route():
+    # mcrib(21)+fries_m(12)+coke_m(10)：单品直购 23.8，套餐 36，1+1随心配 19.9
+    r = solve_combo_deal(mock_data.MOCK_MENU, mock_data.MOCK_COUPONS,
+                         ["mcrib", "fries_m", "coke_m"], mock_data.MOCK_DEALS)
+    assert r["best"]["kind"] == "pick2", r["best"]
+    assert r["best"]["total"] == 19.9, r["best"]
+    assert r["saving_vs_base"] == 3.9, r
+
+
+def test_plan_coupon_usage_skips_expired_coupon():
+    # 券 1 天后过期，订单在第 3 天 —— 不该被分配
+    c = Coupon("t1", "测试满20减4", "fullreduce", threshold=20.0, value=4.0,
+               expire_days=1)
+    orders = [{"order_id": "o1", "day": 3, "items": [mock_data.MOCK_MENU[0]]}]
+    r = plan_coupon_usage([c], orders)
+    assert r["plan"] == [], r
+    assert r["total_saving"] == 0.0
+
+
+def test_plan_coupon_usage_assigns_and_sums():
+    c = Coupon("t2", "测试满20减4", "fullreduce", threshold=20.0, value=4.0,
+               expire_days=5)
+    orders = [{"order_id": "o1", "day": 3, "items": [mock_data.MOCK_MENU[0]]}]
+    r = plan_coupon_usage([c, c], orders)
+    assert len(r["plan"]) == 1  # 一个订单只用一张券
+    assert r["plan"][0]["saving"] == 4.0
+    assert r["total_saving"] == 4.0
+
+
+def test_plan_coupon_usage_mock_data_saves_money():
+    r = plan_coupon_usage(mock_data.MOCK_COUPONS, mock_data.MOCK_ORDERS)
+    assert r["total_saving"] > 0, r
+    for p in r["plan"]:
+        assert p["saving"] > 0
+        assert p["expire_days"] >= p["day"]  # 不会用到已过期的券
+
+
+def test_plan_week_produces_distinct_days():
+    r = plan_week(mock_data.MOCK_MENU, mock_data.MOCK_COUPONS, days=5,
+                  kcal=700, budget=40)
+    assert len(r["days"]) == 5, r
+    names = set()
+    for d in r["days"]:
+        names.update(d["names"])
+    assert len(names) >= 5, names   # 尽量不重样
+    assert r["avg_kcal"] > 0
+
+
+def test_solve_nutrition_diet_respects_avoid():
+    r = solve_nutrition_diet(mock_data.MOCK_MENU, 800, 60, avoid=["牛肉"])
+    assert r is not None
+    assert all("牛肉" not in it.allergens for it in r["items"])
+    assert r["pool_size"] < len(mock_data.MOCK_MENU)
+
+
+def test_report_renders_html_and_escapes():
+    h = render_report_html("测试", [
+        {"heading": "标题<h>", "rows": [("a", 1)],
+         "chart": {"rows": [("x", 3.0)], "unit": "g"}},
+    ])
+    assert "<html" in h and "</html>" in h
+    assert "&lt;h&gt;" in h, "标题中的尖括号必须被转义"
+    assert svg_bars([("a", 1.0)]).startswith("<svg")
+    assert svg_bars([]) == ""
 
 
 if __name__ == "__main__":
