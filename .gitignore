@@ -23,3 +23,6 @@ Thumbs.db
 .pytest_cache/
 htmlcov/
 *.log
+
+# Generated demo artifacts (由 `python demo.py` / `src.cli report` 产生)
+mcd_report.html
