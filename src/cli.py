@@ -18,7 +18,9 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from . import mock_data
+from datetime import datetime
+
+from . import mock_data, scheduler
 from .optimizer import (
     plan_coupon_usage,
     plan_week,
@@ -30,6 +32,16 @@ from .optimizer import (
     solve_savings,
 )
 from .report import render_report_html, write_report
+from .scheduler import (
+    ScheduledOrder,
+    add_order,
+    due_orders,
+    evaluate_order,
+    format_card,
+    load_orders,
+    make_order_id,
+    remove_order,
+)
 
 
 def _money(x: float) -> str:
@@ -185,6 +197,93 @@ def run_report(items, coupons, deals, products, out: str):
     print("      （单文件 HTML，双击即可打开，可直接分享）")
 
 
+def _parse_hhmm(text: str):
+    """解析 HH:MM，返回 (hour, minute)。"""
+    try:
+        hh, mm = text.strip().split(":")
+        return int(hh), int(mm)
+    except Exception:
+        raise SystemExit(f"[错误] 时间格式应为 HH:MM，如 11:30（收到: {text}）")
+
+
+def run_schedule_add(name, items_raw, time_str, days_str, store, budget,
+                     auto_confirm, path):
+    hh, mm = _parse_hhmm(time_str)
+    codes = [c.strip() for c in items_raw.split(",") if c.strip()]
+    days = [int(x) for x in days_str.split(",") if x.strip()]
+    order = ScheduledOrder(
+        order_id=make_order_id(name, hh, mm),
+        name=name, item_codes=codes, hour=hh, minute=mm, days=days,
+        store=store, budget_cap=budget, auto_confirm=auto_confirm,
+    )
+    add_order(order, path)
+    print("== 预订单已保存 ==")
+    print(f"  id    : {order.order_id}")
+    print(f"  名称  : {order.name}")
+    print(f"  时间  : {order.days_str()} {order.time_str()}")
+    print(f"  餐品  : {', '.join(codes)}")
+    if budget > 0:
+        print(f"  预算上限: ¥{budget:.0f}（超上限会被拦截，不会下单）")
+    if auto_confirm:
+        print("  ⚠️ 已开启 auto_confirm：到点将不再逐次询问（请谨慎）")
+    else:
+        print("  安全  : 默认需人工确认后才会下单")
+    print(f"  存储  : {path}")
+
+
+def run_schedule_list(path):
+    orders = load_orders(path)
+    print("== 预订单列表 ==")
+    if not orders:
+        print("  （暂无预订单，用 `schedule add` 添加）")
+        return
+    for o in orders:
+        flag = "启用" if o.enabled else "停用"
+        cap = f" | 上限¥{o.budget_cap:.0f}" if o.budget_cap > 0 else ""
+        auto = " | ⚠️自动确认" if o.auto_confirm else ""
+        print(f"  [{o.order_id}] {o.name} — {o.days_str()} {o.time_str()} "
+              f"| {flag}{cap}{auto}")
+        print(f"       餐品: {', '.join(o.item_codes)}")
+
+
+def run_schedule_remove(order_id, path):
+    ok = remove_order(order_id, path)
+    print("  ✅ 已删除" if ok else f"  ⚠️ 未找到 id={order_id}")
+
+
+def run_schedule_due(at_str, path):
+    now = None
+    if at_str:
+        hh, mm = _parse_hhmm(at_str)
+        now = datetime.now().replace(hour=hh, minute=mm, second=0, microsecond=0)
+    print("== 到点预订单（自动核价 + 安全闸门）==")
+    if now:
+        print(f"  模拟时间: {now.strftime('%Y-%m-%d %H:%M')}")
+    orders = load_orders(path)
+    due = due_orders(orders, now=now)
+    if not due:
+        print("  当前没有到点的预订单。")
+        return
+    for o in due:
+        r = evaluate_order(o, mock_data.MOCK_MENU, mock_data.MOCK_COUPONS, now=now)
+        print(format_card(r))
+        print()
+
+
+def run_schedule_run(order_id, path):
+    orders = load_orders(path)
+    target = next((o for o in orders if o.order_id == order_id), None)
+    if target is None:
+        print(f"  ⚠️ 未找到 id={order_id}")
+        return
+    print("== 预订单试算（dry-run，不会真的下单）==")
+    r = evaluate_order(target, mock_data.MOCK_MENU, mock_data.MOCK_COUPONS)
+    print(format_card(r))
+    if r["ready"]:
+        print("\n  ℹ️ 真实下单请在 WorkBuddy 中确认后由 Skill 调用 create-order；")
+        print("     CLI 只负责管理与试算，永不自动下单。")
+
+
 def run_live():
     token = os.environ.get("MCD_MCP_TOKEN")
     if not token:
@@ -240,6 +339,35 @@ def main():
     p_rp = sub.add_parser("report", help="生成可分享的 HTML 报告（内联图表）")
     p_rp.add_argument("--out", default="mcd_report.html")
 
+    p_sch = sub.add_parser("schedule", help="预订单 / 定时点单（默认需人工确认）")
+    sch = p_sch.add_subparsers(dest="action", required=True)
+
+    p_add = sch.add_parser("add", help="新增预订单")
+    p_add.add_argument("--name", required=True)
+    p_add.add_argument("--items", required=True, help="餐品 code，逗号分隔")
+    p_add.add_argument("--time", default="12:00", help="每天几点，HH:MM")
+    p_add.add_argument("--days", default="", help="0=周一..6=周日，逗号分隔；留空=每天")
+    p_add.add_argument("--store", default="", help="门店名/ID，留空=默认")
+    p_add.add_argument("--budget", type=float, default=0.0, help="预算上限(元)，0=不限")
+    p_add.add_argument("--auto-confirm", action="store_true",
+                       help="⚠️ 到点不再询问直接下单（默认关闭，建议保持关闭）")
+    p_add.add_argument("--file", default=None, help="存储文件，默认 ~/.mcd_scheduled_orders.json")
+
+    p_list = sch.add_parser("list", help="查看预订单")
+    p_list.add_argument("--file", default=None)
+
+    p_rm = sch.add_parser("remove", help="删除预订单")
+    p_rm.add_argument("--id", required=True)
+    p_rm.add_argument("--file", default=None)
+
+    p_due = sch.add_parser("due", help="查看当前到点的预订单并核价")
+    p_due.add_argument("--at", default="", help="模拟时间 HH:MM，便于测试")
+    p_due.add_argument("--file", default=None)
+
+    p_run = sch.add_parser("run", help="试算某条预订单（dry-run）")
+    p_run.add_argument("--id", required=True)
+    p_run.add_argument("--file", default=None)
+
     sub.add_parser("live", help="验证真实 MCP 连接（需 MCD_MCP_TOKEN）")
 
     args = ap.parse_args()
@@ -268,6 +396,19 @@ def main():
     elif args.cmd == "report":
         run_report(mock_data.MOCK_MENU, mock_data.MOCK_COUPONS,
                    mock_data.MOCK_DEALS, mock_data.MOCK_POINTS_PRODUCTS, args.out)
+    elif args.cmd == "schedule":
+        path = args.file or scheduler.DEFAULT_STORE
+        if args.action == "add":
+            run_schedule_add(args.name, args.items, args.time, args.days,
+                             args.store, args.budget, args.auto_confirm, path)
+        elif args.action == "list":
+            run_schedule_list(path)
+        elif args.action == "remove":
+            run_schedule_remove(args.id, path)
+        elif args.action == "due":
+            run_schedule_due(args.at, path)
+        elif args.action == "run":
+            run_schedule_run(args.id, path)
     elif args.cmd == "live":
         run_live()
 
