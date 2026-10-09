@@ -23,7 +23,19 @@ from src.optimizer import (  # noqa: E402
     solve_savings,
 )
 from src.report import render_report_html, svg_bars  # noqa: E402
+from src.scheduler import (  # noqa: E402
+    ScheduledOrder,
+    add_order,
+    evaluate_order,
+    is_due,
+    load_orders,
+    remove_order,
+)
 from src import mock_data  # noqa: E402
+
+from datetime import datetime  # noqa: E402
+import os  # noqa: E402
+import tempfile  # noqa: E402
 
 
 def test_apply_coupons_single_and_order():
@@ -174,6 +186,68 @@ def test_report_renders_html_and_escapes():
     assert "&lt;h&gt;" in h, "标题中的尖括号必须被转义"
     assert svg_bars([("a", 1.0)]).startswith("<svg")
     assert svg_bars([]) == ""
+
+
+# ---------------------------------------------------------------------------
+# 预订单 / 定时点单（scheduler）测试
+# ---------------------------------------------------------------------------
+
+
+def test_scheduler_is_due_matching_time():
+    # 2026-10-09 是周五
+    o = ScheduledOrder("id1", "午餐", ["mcrib"], hour=11, minute=30)
+    assert is_due(o, now=datetime(2026, 10, 9, 11, 32)) is True    # 到点+2分钟
+    assert is_due(o, now=datetime(2026, 10, 9, 11, 30)) is True    # 正好到点
+    assert is_due(o, now=datetime(2026, 10, 9, 11, 25)) is False   # 还没到
+    assert is_due(o, now=datetime(2026, 10, 9, 12, 10)) is False   # 超出宽限窗口
+
+
+def test_scheduler_is_due_respects_days_and_disabled():
+    friday = datetime(2026, 10, 9, 11, 31)    # weekday()==4
+    sunday = datetime(2026, 10, 11, 11, 31)   # weekday()==6
+    workday_only = ScheduledOrder("id2", "工作日午餐", ["mcrib"],
+                                  hour=11, minute=30, days=[0, 1, 2, 3, 4])
+    assert is_due(workday_only, now=friday) is True
+    assert is_due(workday_only, now=sunday) is False
+
+    disabled = ScheduledOrder("id3", "停用的单", ["mcrib"],
+                              hour=11, minute=30, enabled=False)
+    assert is_due(disabled, now=friday) is False
+
+
+def test_scheduler_evaluate_blocks_over_budget_but_always_needs_confirm():
+    # bigmac + quarter = 49，85折后 41.65 > 上限 30 → 必须被拦截
+    o = ScheduledOrder("id4", "大餐", ["bigmac", "quarter"],
+                       hour=12, minute=0, budget_cap=30.0)
+    r = evaluate_order(o, mock_data.MOCK_MENU, mock_data.MOCK_COUPONS)
+    assert r["total"] > 30.0
+    assert r["ready"] is False
+    assert any("超出预算上限" in x for x in r["reasons"])
+
+    # 预算充足可以通过，但「仍需人工确认」这条红线不能破
+    o2 = ScheduledOrder("id5", "便宜午餐", ["hashbrown"],
+                        hour=12, minute=0, budget_cap=50.0)
+    r2 = evaluate_order(o2, mock_data.MOCK_MENU, mock_data.MOCK_COUPONS)
+    assert r2["ready"] is True
+    assert r2["needs_confirm"] is True
+
+
+def test_scheduler_save_load_roundtrip():
+    tmp = os.path.join(tempfile.mkdtemp(), "orders.json")
+    o = ScheduledOrder("id6", "测试单", ["mcrib", "coke_m"],
+                       hour=9, minute=5, days=[1, 3], budget_cap=25.0,
+                       store="滨江店")
+    add_order(o, path=tmp)
+    loaded = load_orders(tmp)
+    assert len(loaded) == 1
+    got = loaded[0]
+    assert got.name == "测试单"
+    assert got.days == [1, 3]
+    assert got.budget_cap == 25.0
+    assert got.store == "滨江店"
+    assert got.hour == 9 and got.minute == 5
+    assert remove_order("id6", path=tmp) is True
+    assert load_orders(tmp) == []
 
 
 if __name__ == "__main__":
