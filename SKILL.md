@@ -89,6 +89,23 @@ description: 麦麦精算师 —— 基于麦当劳 MCP 的智能点餐优化技
 调用 `src/report.py: render_report_html / write_report`，把优化结果生成为
 **单文件 HTML**（内联 SVG 图表、无外链资源），可直接打开或分享。
 
+### 模式 J：预订单 / 定时点单（⚠️ 默认必须人工确认）
+1. 用户说「每天 11:30 帮我点 XX」「工作日午餐自动提醒我」时，用 `src/scheduler.py` 建预订单：
+   `ScheduledOrder(name, item_codes, hour, minute, days, store, budget_cap)`，
+   存到本地 `~/.mcd_scheduled_orders.json`。
+2. 到点时（`is_due` / `due_orders`，带 5 分钟宽限窗口，调度器晚跑几分钟也不漏单）执行：
+   - **必须用实时数据重新核价**（`query-meals` + `available-coupons`）；
+     ⚠️ 绝不沿用建单时算出的旧价 —— 价格、券、在售状态随时会变。
+   - 跑安全闸门 `evaluate_order`：餐品是否还在售、到手价是否超出 `budget_cap`。
+   - 输出「待确认订单卡片」`format_card`。
+3. **红线**：`needs_confirm` 恒为 `True` —— 任何预订单都必须先向用户复述金额与内容、
+   获得明确确认后，才允许调用 `create-order`。
+   `auto_confirm` 默认 `False`；用户要求开启前，**必须先讲清风险并取得同意**。
+4. 被拦截（售罄 / 超预算）时**不下单**，只把原因告诉用户。
+
+> 真正的「到点自动触发」由外部调度器完成（cron / Windows 任务计划程序 / WorkBuddy 定时自动化），
+> 让它定时执行 `schedule due` 并把待确认卡片推给用户。CLI 本身不做后台常驻。
+
 ### 下单（需用户明确确认）
 - 外送：`delivery-query-addresses` →（无地址则 `delivery-create-address`）→ `delivery-query-stores` → `calculate-price` → **`create-order`**（返回支付链接）→ `query-order` 跟踪。
 - 到店/自取：`query-nearby-stores` → `calculate-price` → `create-order`。
