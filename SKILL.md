@@ -105,6 +105,8 @@ description: 麦麦精算师 —— 基于麦当劳 MCP 的智能点餐优化技
 
 > 真正的「到点自动触发」由外部调度器完成（cron / Windows 任务计划程序 / WorkBuddy 定时自动化），
 > 让它定时执行 `schedule due` 并把待确认卡片推给用户。CLI 本身不做后台常驻。
+> 仓库已附 [`workbuddy.automation.json`](./workbuddy.automation.json)：一条「工作日 11:30」recurring 自动化配置，
+> 含完整 prompt 与五条安全红线，复制即用；作者也已在本 WorkBuddy 中建好并设为 ACTIVE。
 
 ### 下单（需用户明确确认）
 - 外送：`delivery-query-addresses` →（无地址则 `delivery-create-address`）→ `delivery-query-stores` → `calculate-price` → **`create-order`**（返回支付链接）→ `query-order` 跟踪。
