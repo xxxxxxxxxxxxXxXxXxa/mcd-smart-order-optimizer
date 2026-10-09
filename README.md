@@ -32,6 +32,7 @@
 - 🗓️ **券包排程**：多张带到期日的券，算「哪张用在哪个订单」最省，快过期的先用不浪费
 - 📅 **多天计划**：一周饮食规划，控热量与预算、尽量不重样
 - 📄 **分享报告**：一键生成单文件 HTML（内联 SVG 图表，无外链），可直接晒
+- ⏰ **预订单 / 定时点单**：到点自动重新核价 + 安全闸门（在售 / 预算上限），弹待确认卡片，确认后才下单
 - 🛒 **一键下单**：确认金额与内容后，调用 `create-order` 生成支付链接
 
 > 不是「帮你点个餐」，而是「帮你把每一次麦当劳点餐都点到最优」。
@@ -107,6 +108,13 @@ python -m src.cli coupons
 # 生成可分享的 HTML 报告（内联图表，单文件）
 python -m src.cli report --out mcd_report.html
 
+# 预订单 / 定时点单（到点自动核价 + 安全闸门，确认后才下单）
+python -m src.cli schedule add --name "工作日午餐" --items mcrib,coke_m \
+       --time 11:30 --days 0,1,2,3,4 --budget 30
+python -m src.cli schedule list
+python -m src.cli schedule due                 # 看当前到点的单并核价
+python -m src.cli schedule run --id <id>       # 试算（dry-run，永不真下单）
+
 # 验证真实 MCP 连接（需设置环境变量 MCD_MCP_TOKEN）
 export MCD_MCP_TOKEN=你的令牌
 python -m src.cli live
@@ -117,7 +125,7 @@ python -m src.cli live
 ### 运行测试
 
 ```bash
-python tests/test_optimizer.py     # 18 项断言，零依赖
+python tests/test_optimizer.py     # 22 项断言，零依赖
 ```
 
 ## 示例输出
@@ -179,6 +187,47 @@ python tests/test_optimizer.py     # 18 项断言，零依赖
   >>> 合计 ¥96.05 | 日均 695 kcal | 日均花费 ¥24.01
 ```
 
+## 预订单 / 定时点单（怎么才算安全）
+
+**能定时，但默认绝不自动扣款。** 到点后的流程是「重新核价 → 安全闸门 → 待你确认」：
+
+| 环节 | 做什么 |
+|---|---|
+| 到点判定 | `is_due()`：按星期 + 时刻匹配，带 **5 分钟宽限窗口**（调度器晚跑几分钟也不漏单） |
+| 重新核价 | 用**实时**菜单与券重算到手价 —— **绝不沿用建单时的旧价**（价格、券、在售状态随时会变） |
+| 安全闸门 | 餐品是否还在售、到手价是否超出 `budget_cap`；任一不满足就**拦截、不下单** |
+| 待确认卡片 | 输出金额与内容，**必须人工确认**后才允许 `create-order` |
+
+```bash
+# 建一条：工作日 11:30，麦辣鸡腿堡 + 可乐，预算上限 30（超了自动拦截）
+python -m src.cli schedule add --name "工作日午餐" --items mcrib,coke_m \
+       --time 11:30 --days 0,1,2,3,4 --budget 30
+
+python -m src.cli schedule list                 # 查看全部
+python -m src.cli schedule due                  # 看当前到点的单并核价（--at 11:31 可模拟）
+python -m src.cli schedule run  --id 7883c253   # 试算某条（dry-run，永不真下单）
+python -m src.cli schedule remove --id 7883c253
+```
+
+实测（模拟到点）：
+
+```
+  ┌ 预订单: 工作日午餐  (7883c253)
+  │ 时间: 周一、周二、周三、周四、周五 11:30 | 预算上限: ¥30
+  │ 餐品: 麦辣鸡腿堡, 可乐(中)
+  │ 到手价: ¥16.00  (已用券: 麦辣鸡腿堡特价¥10, 可乐(中)特价¥6)
+  └ 状态: ✅ 可下单 —— 待你确认后才会调用 create-order
+
+  ┌ 预订单: 周末大餐  (7ed976f5)
+  │ 餐品: 巨无霸, 四分之一磅牛肉堡
+  │ 到手价: ¥41.65  (已用券: 全单85折)
+  └ 状态: ⛔ 已拦截，不会下单
+       - 到手价 ¥41.65 超出预算上限 ¥30.00
+```
+
+> **真正「到点自动触发」需要外部调度器**：cron / Windows 任务计划程序 / WorkBuddy 定时自动化，
+> 让它定时跑 `schedule due`，把待确认卡片推给你。CLI 本身不做后台常驻，也**永不自动下单**。
+
 ## 项目结构
 
 ```
@@ -195,9 +244,10 @@ mcd-smart-order-optimizer/
 │   ├── mcp_client.py         # 麦当劳 MCP Streamable HTTP 客户端（仅标准库）
 │   ├── mock_data.py          # dry-run 样例数据（含过敏原/券到期日/优惠组合）
 │   ├── report.py             # 分享报告生成（自包含 HTML + 内联 SVG）
-│   └── cli.py                # 命令行入口（9 个子命令）
+│   ├── scheduler.py          # 预订单 / 定时点单（存储 + 到期判定 + 安全闸门）
+│   └── cli.py                # 命令行入口（10 个子命令）
 ├── references/tools.md       # 麦当劳 MCP 工具清单
-└── tests/test_optimizer.py   # 单元测试（18 项）
+└── tests/test_optimizer.py   # 单元测试（22 项）
 ```
 
 ## 优化引擎核心公式
