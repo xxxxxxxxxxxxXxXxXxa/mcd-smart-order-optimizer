@@ -1,0 +1,27 @@
+{
+  "name": "麦麦精算师 · 工作日午餐预订单检查",
+  "description": "每个工作日 11:30 跑一次 `schedule due`，把「到点预订单」的待确认卡片推给用户。默认绝不自动下单。",
+  "scheduleType": "recurring",
+  "rrule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=11;BYMINUTE=30",
+  "timezone": "Asia/Shanghai",
+  "enabled_by_default": true,
+  "prompt": "你是「麦麦精算师」的定时点单检查器。请严格按以下步骤执行：\n\n1. 用 Bash 工具进入项目目录（Windows 用 Git Bash，路径用正斜杠）：\n   cd /c/Users/QK/WorkBuddy/2026-10-09-14-09-31/mcd-smart-order-optimizer\n\n2. 用托管 Python 运行（务必用绝对路径，保证跨进程稳定）：\n   /c/Users/QK/.workbuddy/binaries/python/versions/3.13.12/python.exe -m src.cli schedule due\n   （该命令默认读取用户家目录 ~/.mcd_scheduled_orders.json 里的预订单）\n\n3. 分析命令的标准输出：\n   - 若包含「当前没有到点的预订单」：只回一句「今天没有到点的预订单 👍」即可，不要做其他任何操作。\n   - 若输出了「待确认订单卡片」（以 ┌ 预订单 开头的块）：把每张卡片原样整理后发给用户，并明确提示「请确认金额与内容后，我才会调用 create-order 帮你下单」。\n\n4. 红线（务必遵守）：⚠️ 无论什么情况，都不要自动调用 create-order、不要自动确认、不要自动下单。本任务只做「核价 + 推送卡片」。\n\n5. 若命令执行失败（非零退出 / 报错 / 找不到文件）：把关键错误信息简洁告诉用户，不要静默重试，也不要尝试自己改预订单数据。",
+  "safeguards": [
+    "CLI 的 schedule 子命令只做管理与模拟，代码层面永不调用 create-order。",
+    "evaluate_order 的 needs_confirm 恒定返回 True，任何预订单都必须人工确认。",
+    "auto_confirm 默认 False；即便用户开启，也只在用户明确同意后才生效。",
+    "到点带 5 分钟宽限窗口，调度器晚跑几分钟也不漏单。",
+    "到点用实时菜单重新核价，不沿用建单时的旧价；超预算 / 售罄会被拦截、不下单。"
+  ],
+  "how_to_enable": [
+    "方式 A（已内置，开箱即用）：本仓库作者在 WorkBuddy 中已用上述 name/rrule/prompt 建好「定时自动化」，状态为 ACTIVE，到时自动跑。",
+    "方式 B（自行创建）：在 WorkBuddy 定时自动化里新建一条 recurring 任务，把上面的 name / rrule / prompt 原样粘贴即可。",
+    "方式 C（纯命令行，无 WorkBuddy）：用系统 cron 或 Windows 任务计划程序，定时执行 `python -m src.cli schedule due`，再把输出转发给自己。"
+  ],
+  "manage_commands": [
+    "python -m src.cli schedule add --name 工作日午餐 --items mcrib,coke_m --time 11:30 --days 0,1,2,3,4 --budget 30",
+    "python -m src.cli schedule list",
+    "python -m src.cli schedule due --at 11:31   # 模拟到点核价",
+    "python -m src.cli schedule remove --id <id>"
+  ]
+}
