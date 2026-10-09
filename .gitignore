@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Secrets / local config (NEVER commit real tokens)
+.env
+*.local.json
+mcp-config.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+
+# Test / build artifacts
+.pytest_cache/
+htmlcov/
+*.log
