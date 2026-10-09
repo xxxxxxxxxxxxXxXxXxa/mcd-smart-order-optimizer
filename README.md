@@ -12,6 +12,10 @@
   一句话算出「预算内最省 / 热量达标 / 蛋白更高」的<u>最优组合</u>与<u>到手价</u>，确认后再下单。
 </p>
 
+<p align="center">
+  <b>🏆 2026 麦当劳程序员创意开发大赛参赛作品</b> · Star 榜 10/26 00:00 截止，<a href="https://github.com/xxxxxxxxxxxxXxXxXxa/mcd-smart-order-optimizer">来捧个场 ⭐</a>
+</p>
+
 ---
 
 ## 这是什么
@@ -151,6 +155,14 @@ mcd-smart-order-optimizer/
 ## 声明
 
 参赛作品，由作者独立开发，非麦当劳官方产品。餐品信息、价格及供应状态以麦当劳官方渠道实时结果为准。
+
+## ⭐ 喜欢就点个 Star
+
+如果这个项目帮你把麦当劳点到更省 / 更 healthy / 更值，欢迎点个 Star 支持一下，也帮我冲刺 2026 麦当劳创意开发大赛 🏆
+
+🔗 https://github.com/xxxxxxxxxxxxXxXxXxa/mcd-smart-order-optimizer
+
+你的 Star 是我继续完善（更多餐品、门店实时库存、套餐自动拆解）的动力。
 
 ## License
 
