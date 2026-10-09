@@ -228,6 +228,15 @@ python -m src.cli schedule remove --id 7883c253
 > **真正「到点自动触发」需要外部调度器**：cron / Windows 任务计划程序 / WorkBuddy 定时自动化，
 > 让它定时跑 `schedule due`，把待确认卡片推给你。CLI 本身不做后台常驻，也**永不自动下单**。
 
+### 一键启用 WorkBuddy 定时自动化（已内置）
+
+「到点自动触发」这一公里我们直接给你配好了：在 WorkBuddy 里建了一条 **recurring 定时自动化** ——
+**每个工作日 11:30** 自动跑 `schedule due`，把到点的预订单「待确认卡片」推给你，**默认绝不自动下单**。
+
+- 配置文件见仓库 [`workbuddy.automation.json`](./workbuddy.automation.json)（含 rrule、prompt、安全红线、自行启用方式）。
+- 想改时间 / 星期 / 买什么：用上面的「管理命令」增删预订单，或直接改自动化触发时间。
+- 还没加过预订单？自动化到点只会回一句「今天没有到点的预订单」，完全无副作用。
+
 ## 项目结构
 
 ```
@@ -238,6 +247,7 @@ mcd-smart-order-optimizer/
 ├── mcp-config.example.json   # 脱敏 MCP 配置（必交）
 ├── workbuddy.md              # WorkBuddy 开发上下文（拿 WB 专项积分必交）
 ├── SKILL.md                  # WorkBuddy 技能本体（可安装）
+├── workbuddy.automation.json # 定时自动化配置（一键启用工作日 11:30 定时点单）
 ├── demo.py                   # 一站式演示
 ├── src/
 │   ├── optimizer.py          # 核心优化引擎（纯算法，可单测）
